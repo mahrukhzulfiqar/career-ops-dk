@@ -45,6 +45,26 @@ CV is missing.
 line. Lowering it is the user's decision to make explicitly each time — offer
 it, do not apply it silently.
 
+### Which CV gets attached
+
+`config/profile.yml`:
+
+```yaml
+cv:
+  attach: tailored              # default: the per-role CV from the pdf mode
+  attach: "data/My_CV.pdf"      # or: always attach this one, unchanged
+```
+
+`--cv <path>` overrides it for one run. A configured path that does not exist
+is a hard error — never fall back to the tailored CV, and never "helpfully"
+substitute a file. `job.json` records `cv_mode` so a finished bundle says which
+one travelled.
+
+The tailored CV is still generated either way; this only decides what is
+attached. If the user has set a fixed CV, do not argue them out of it, but do
+say once that a hand-made PDF usually parses worse in an ATS than the generated
+one, and that a fixed CV is not reordered toward each job's keywords.
+
 **Nothing in this system submits an application.** The runner fills a form,
 leaves it open in a browser tab, and stops; the user reviews and clicks Submit.
 This is enforced in code (a shadowed click action), not just requested in a

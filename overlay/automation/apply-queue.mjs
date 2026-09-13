@@ -173,10 +173,13 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-function loadProfile() {
+function loadProfileDoc() {
   const p = join(ROOT, 'config/profile.yml');
   if (!existsSync(p)) fail('no config/profile.yml');
-  const doc = yaml.load(readFileSync(p, 'utf8')) ?? {};
+  return yaml.load(readFileSync(p, 'utf8')) ?? {};
+}
+
+function loadProfile(doc) {
   // visa_status is not under candidate: in profile.yml, but it is an identity
   // fact a form asks for, so it is folded in here rather than special-cased at
   // every consumer.
@@ -184,6 +187,32 @@ function loadProfile() {
   if (doc.visa_status && !candidate.visa_status) candidate.visa_status = doc.visa_status;
   if (doc.location?.visa_status && !candidate.visa_status) candidate.visa_status = doc.location.visa_status;
   return candidate;
+}
+
+/**
+ * Which PDF gets attached: the per-role tailored CV, or one fixed file.
+ *
+ *   cv:
+ *     attach: tailored                    # default — the pdf mode's output
+ *     attach: "data/My_CV.pdf"            # always attach this one
+ *
+ * A configured path that does not exist is a HARD FAILURE, never a fall back to
+ * the tailored CV. Silently attaching a different document than the one asked
+ * for is the exact failure this whole handoff is built to prevent, and it would
+ * be invisible: the bundle still contains a plausible cv.pdf.
+ */
+export function resolveAttachMode(doc, override) {
+  const raw = override ?? doc?.cv?.attach ?? 'tailored';
+  const value = String(raw).trim();
+  if (!value || value.toLowerCase() === 'tailored') return { mode: 'tailored', path: null };
+  const abs = resolve(ROOT, value);
+  if (!existsSync(abs)) {
+    fail(`cv.attach points at "${value}", which does not exist (resolved to ${abs}).\n` +
+         '  Fix the path in config/profile.yml, or set it to "tailored".\n' +
+         '  Refusing to fall back to the tailored CV: attaching a different document\n' +
+         '  than the one configured would be invisible in the finished bundle.');
+  }
+  return { mode: 'original', path: abs };
 }
 
 /**
@@ -278,7 +307,9 @@ function collectCandidates(rows, opts) {
       console.error(`  skip ${num}: report has no **URL:** header`);
       continue;
     }
-    const cv = resolveCvPath(num, text);
+    // With a fixed attachment configured, a missing tailored CV is not a reason
+    // to skip the job — that CV is never going to be attached.
+    const cv = opts.attach.mode === 'original' ? opts.attach.path : resolveCvPath(num, text);
     if (!cv) {
       console.error(`  skip ${num}: no CV PDF — run the pdf mode first`);
       continue;
@@ -377,6 +408,7 @@ function exportJob(job, outRoot, candidate, opts) {
     legitimacy_tier: job.summary.legitimacy_tier ?? null,
     final_decision: job.summary.final_decision ?? null,
     hard_stops: job.summary.hard_stops ?? [],
+    cv_mode: opts.attach.mode,
     candidate: candidateFacts(candidate),
     cover_letter: letterSrc ? 'cover-letter.md' : null,
     exported_at: new Date().toISOString(),
@@ -405,6 +437,7 @@ function parseFlags(argv) {
   if (Number.isNaN(min)) fail(`--min-score expects a number, got "${rawMin}"`);
   const rawReport = val('--report');
   return {
+    attachOverride: val('--cv'),
     minScore: min,
     only: rawReport ? String(rawReport).padStart(3, '0') : null,
     out: val('--out') ? resolve(val('--out')) : DEFAULT_OUT,
@@ -420,11 +453,17 @@ function main() {
     return;
   }
   const opts = parseFlags(argv);
-  const candidate = loadProfile();
+  const profileDoc = loadProfileDoc();
+  const candidate = loadProfile(profileDoc);
+  opts.attach = resolveAttachMode(profileDoc, opts.attachOverride);
   const rows = loadTrackerRows(readTrackerPath());
   const jobs = collectCandidates(rows, opts);
 
   const scope = opts.only ? `report ${opts.only}` : `status Evaluated, score >= ${opts.minScore}`;
+  if (opts.attach.mode === 'original') {
+    const rel = opts.attach.path.startsWith(ROOT) ? opts.attach.path.slice(ROOT.length + 1) : opts.attach.path;
+    console.log(`apply-queue: attaching the SAME CV to every application: ${rel}`);
+  }
   console.log(`apply-queue: ${jobs.length} candidate(s) (${scope})`);
   if (jobs.length === 0) return;
 

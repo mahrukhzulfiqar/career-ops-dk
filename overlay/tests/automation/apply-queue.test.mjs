@@ -90,3 +90,17 @@ const noVisa = buildFacts({ full_name: 'A' });
   'buildFacts omits work authorisation when the profile does not state it');
 (noVisa.includes('Work authorisation, visa status') ? pass : fail)(
   'buildFacts still forbids guessing work authorisation when it is unstated');
+
+// --- cv.attach: which PDF is attached to an application.
+// The tailored CV is still generated; this only decides what travels.
+const { resolveAttachMode } = mod;
+eq(resolveAttachMode({}, null).mode, 'tailored', 'attach defaults to the tailored CV');
+eq(resolveAttachMode({ cv: { attach: 'tailored' } }, null).mode, 'tailored',
+   'attach: tailored is explicit and valid');
+eq(resolveAttachMode({ cv: {} }, null).mode, 'tailored', 'an empty cv block still defaults');
+eq(resolveAttachMode({ cv: { attach: '  ' } }, null).mode, 'tailored', 'a blank value defaults');
+// a real file in the repo, used only to prove a configured path resolves
+eq(resolveAttachMode({ cv: { attach: 'cv.md' } }, null).mode, 'original',
+   'a path that exists selects the fixed attachment');
+eq(resolveAttachMode({ cv: { attach: 'tailored' } }, 'cv.md').mode, 'original',
+   '--cv overrides the profile setting');
