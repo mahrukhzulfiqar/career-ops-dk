@@ -5,6 +5,7 @@ that fills application forms. Two halves that career-ops upstream does not ship.
 
 ```
 career-ops-dk/
+  bootstrap.sh    START HERE — sets up everything on a fresh machine
   overlay/        code that installs INTO a career-ops checkout
   apply-runner/   the Python/browser-use form filler (standalone)
   setup.sh        installs the overlay into a checkout
@@ -40,16 +41,28 @@ requirement is that the checkout owns its own `.git` — a ZIP copy is refused.
 ```bash
 git clone <this repo> career-ops-dk
 cd career-ops-dk
-./setup.sh --clone ../career-ops     # clone career-ops, then install the overlay
-cd apply-runner && uv sync
-cp .env.example .env                 # add your own ANTHROPIC_API_KEY
+./bootstrap.sh
 ```
 
-The API key is a console.anthropic.com key. It bills per token, separately from
-any Claude Code subscription.
+That is the whole install. It checks what you are missing, clones career-ops,
+installs the overlay, fetches the browser, sets up the Python runner, creates
+your `.env`, runs the test suites, and prints the three things left to do. It
+never uses sudo and re-running it is safe.
 
-Then run career-ops and let it onboard you — it asks for your CV and details
-and writes them into the checkout, where they stay. See "Your data" below.
+You need first: **git**, **Node 18+**, **uv** (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
+and an agent CLI such as Claude Code. bootstrap tells you which are missing and
+how to get them, then stops rather than half-installing.
+
+You also need an **Anthropic API key** from console.anthropic.com for the form
+filler. It bills per token, separately from any Claude subscription — measured
+at about **$0.26 per application**. career-ops itself runs on your agent CLI's
+own subscription, not this key.
+
+Check an existing install at any time:
+
+```bash
+./bootstrap.sh --check      # verifies everything, changes nothing
+```
 
 ## Working on the overlay
 
