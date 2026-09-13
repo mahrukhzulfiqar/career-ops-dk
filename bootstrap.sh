@@ -19,7 +19,11 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "$HERE/.." && pwd)/career-ops"
+PARENT="$(cd "$HERE/.." && pwd)"
+REPO="$PARENT/career-ops"
+# apply-queue.mjs defaults its output to <career-ops>/../handoff, so the paths
+# printed below must be derived, not assumed to be under ~.
+HANDOFF="$PARENT/handoff"
 CANONICAL="https://github.com/career-ops-hq/career-ops.git"
 CHECK_ONLY=0
 FAILED=0
@@ -232,8 +236,8 @@ $(printf '\033[1m%s\033[0m' "Installed. Three things left, in this order:")
 
          node automation/apply-queue.mjs --min-score 4.0
          cd $HERE/apply-runner
-         uv run python run.py ~/job-searcher/handoff --dry-run   # free, no browser
-         uv run python run.py ~/job-searcher/handoff             # fills the forms
+         uv run python run.py $HANDOFF --dry-run   # free, no browser
+         uv run python run.py $HANDOFF             # fills the forms
 
      Every form is left open in its own browser tab. You review it, answer
      anything it left blank, and click Submit yourself. The runner cannot
