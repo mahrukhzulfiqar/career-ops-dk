@@ -94,10 +94,14 @@ install_local_rules() {
     fi
   fi
 
-  python3 - "$target" "$LOCAL_RULES" "$begin" "$end" <<'PYEOF'
+  # The notes live in this repo, which is a SIBLING of the career-ops checkout,
+  # so nothing auto-loads them. The block below is the only thing that is always
+  # in context; it exists to point at them. Substituting the real absolute path
+  # keeps that pointer valid wherever the two repos actually sit.
+  python3 - "$target" "$LOCAL_RULES" "$begin" "$end" "$HERE/AGENT-NOTES.md" <<'PYEOF'
 import sys
-target, source, begin, end = sys.argv[1:5]
-body = open(source, encoding="utf-8").read().strip()
+target, source, begin, end, notes = sys.argv[1:6]
+body = open(source, encoding="utf-8").read().strip().replace("{{NOTES_PATH}}", notes)
 block = f"{begin}\n\n{body}\n\n{end}"
 text = open(target, encoding="utf-8").read()
 if begin in text and end in text:

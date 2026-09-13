@@ -7,6 +7,7 @@ that fills application forms. Two halves that career-ops upstream does not ship.
 career-ops-dk/
   bootstrap.sh    START HERE — sets up everything on a fresh machine
   QUICKSTART.md   how to actually use it once installed
+  AGENT-NOTES.md  what these additions are (read by agents, and by you)
   overlay/        code that installs INTO a career-ops checkout
   apply-runner/   the Python/browser-use form filler (standalone)
   setup.sh        installs the overlay into a checkout

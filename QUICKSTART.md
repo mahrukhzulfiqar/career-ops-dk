@@ -13,12 +13,16 @@ knows the whole system — the modes, the scoring, and which file each kind of
 change belongs in. You do not need to learn the file layout; you do need to be
 in that directory.
 
-It also knows about the additions in this repo — the Jobindex scanner,
-`run-chain.sh`, and how applying actually works here — because `bootstrap.sh`
-writes them into `modes/_custom.md`, which career-ops loads on every mode. So
-*"apply to this one"* gets the bundle-and-runner workflow, not a stock answer.
-That block is managed by `setup.sh`; your own rules can live in the same file
-underneath it and are never touched.
+It also finds the additions in this repo — the Jobindex scanner, `run-chain.sh`,
+and how applying actually works here. `bootstrap.sh` writes a short pointer into
+`modes/_custom.md` (loaded on every mode) that sends the agent to
+`AGENT-NOTES.md` in this repo when the question calls for it. So *"apply to this
+one"* gets the bundle-and-runner workflow, not a stock answer, without carrying
+the full explanation in context all day.
+
+That pointer is managed by `setup.sh`. Your own rules can live in the same file
+underneath it and are never touched. To change what agents are told, edit
+`AGENT-NOTES.md` here and re-run `./setup.sh`.
 
 ## First session
 
