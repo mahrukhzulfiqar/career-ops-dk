@@ -3,6 +3,7 @@
     uv run python run.py ~/job-searcher/handoff            # every pending bundle
     uv run python run.py ~/job-searcher/handoff/011-queue-it   # just one
     uv run python run.py ~/job-searcher/handoff --dry-run  # verify, open no browser
+    uv run python run.py ~/job-searcher/handoff --no-pause # never stop, fill everything
 
 Input is a handoff directory written by career-ops' automation/apply-queue.mjs,
 or a root holding several. Each bundle is self-contained — job.json, cv.pdf,
@@ -20,15 +21,44 @@ a dead posting costs real money.
 Every form is filled and left open in ITS OWN TAB. Nothing is ever submitted —
 a human reviews the tabs and submits by hand.
 
-Each job gets an explicit `session.new_page()` first. Sharing a BrowserSession
-does NOT give each agent its own tab: without this the next agent finds the
-previous filled form in the current tab, correctly judges it "an unrelated
-page", and navigates away over the top of it — destroying exactly the artifact
-the human is supposed to review.
+Jobs are filled one after another in a single browser, and the run does NOT
+stop for fields needing your own words: that is the normal outcome, it happens
+on every job while no cover letter is generated, and stopping for it would mean
+answering prompts during filling and then reviewing every tab again anyway.
+Walk away, come back to N filled tabs, work through them.
 
-THE ADAPTIVE RULE (see ../overlay/automation/BROWSER_USE_SCOPE.md):
-pause is the DEFAULT. The loop only advances to the next job on positive
-evidence that nothing needs a human first. Silence never means "proceed".
+It DOES stop when something looks wrong — no form reached, no CV attached, a
+captcha, or anything that touched the submit path — because continuing past
+that spends money on jobs likely to fail the same way. --no-pause overrides.
+
+ONE BROWSER PER JOB, not one browser with a tab per job.
+
+`Agent` takes no page argument: it drives whatever its BrowserSession has
+focused. So a shared session means every agent competes for one focus, and the
+tab route (new_page + SwitchTabEvent) proved unreliable in browser-use 0.13.10 —
+focus landed one step behind, a created tab went missing, and probing it hung.
+Observed 2026-09-13 on a real two-job run: ONE tab survived. The second agent
+found the first job's filled form, correctly judged it an unrelated page, and
+navigated away over the top of it. Both jobs reported success, so the summary
+said everything was fine while the first form no longer existed.
+
+A session per job removes the failure by construction rather than timing it
+right: each agent owns its browser and cannot touch another job's window. It
+costs one Chromium window per job instead of one tab, which is the same review
+experience — every filled form stays open until you close it.
+
+It also tightens navigation: allowed_domains is now that job's own hosts, not
+the union of every job in the batch.
+
+STOPPING (revised 2026-09-13). The batch stops only when something is WRONG —
+no form reached, no CV attached, a captcha, or anything that touched the submit
+path — because continuing past that spends money repeating the same failure.
+
+It does NOT stop for a field needing your own words. That is the normal outcome
+and, while no cover letter is generated, it happens on every single job; pausing
+for it meant answering a prompt per job during filling and then reviewing every
+window again afterwards. Fill everything, walk away, work through the windows.
+--no-pause disables the remaining stops too.
 """
 
 import asyncio
@@ -116,19 +146,24 @@ You are filling a job application on behalf of a real person. Absolute rules:
 """
 
 
-def pause_reasons(result, blocked_clicks):
-    """Why a human is needed before the next job. Empty list = safe to advance."""
-    reasons = []
+def blocking_reasons(result, blocked_clicks):
+    """Signs something is WRONG, so the batch should stop before spending more.
+
+    Deliberately does not include open questions. A field needing the
+    candidate's own words is the normal, expected outcome — with no cover letter
+    generated it happens on every job — and stopping the batch for it means
+    being prompted once per job during filling, then reviewing everything again
+    afterwards. These are the cases where continuing wastes money or hides a
+    problem: no form, no CV attached, a captcha, or anything that touched the
+    submit path.
+    """
     if result is None:
-        reasons.append("agent returned no structured result")
-        return reasons
+        return ["agent returned no structured result"]
+    reasons = []
     if not result.form_found:
         reasons.append("no application form was reached (posting may be dead)")
     if result.captcha_present:
         reasons.append("captcha on the form — only a human may solve it")
-    open_questions = [s.label for s in result.skipped if s.is_free_text]
-    if open_questions:
-        reasons.append(f"{len(open_questions)} open question(s) need her own words: {'; '.join(open_questions[:3])}")
     if not result.cv_attached:
         reasons.append("CV was not attached")
     if blocked_clicks:
@@ -138,9 +173,21 @@ def pause_reasons(result, blocked_clicks):
     return reasons
 
 
+def review_notes(result):
+    """Normal things the human finishes later, tab by tab. Never stops a batch."""
+    if result is None:
+        return []
+    open_questions = [s.label for s in result.skipped if s.is_free_text]
+    if not open_questions:
+        return []
+    return [f"{len(open_questions)} open question(s) need your own words: "
+            f"{'; '.join(open_questions[:3])}"]
+
+
 async def main() -> int:
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     dry_run = "--dry-run" in sys.argv
+    pause_on_block = "--no-pause" not in sys.argv
     if len(args) != 1:
         print(__doc__)
         return 2
@@ -171,17 +218,16 @@ async def main() -> int:
 
     from browser_use import Agent, BrowserSession, ChatAnthropic
 
-    hosts = set()
-    for job in jobs:
-        host = urlparse(job.url).netloc
-        if host:
-            root = ".".join(host.split(".")[-2:])
-            hosts.update({f"https://{root}", f"https://*.{root}"})
+    def allowed_for(url):
+        """Just this job's own hosts. A board that hands off to an employer's
+        real ATS needs that second host too, which job.json records once it is
+        known; until then a handoff posting is expected to fail here."""
+        host = urlparse(url).netloc
+        if not host:
+            return []
+        root = ".".join(host.split(".")[-2:])
+        return sorted({f"https://{root}", f"https://*.{root}"})
 
-    # One browser for the whole batch, so every filled form stays open in its
-    # own tab for review at the end.
-    session = BrowserSession(browser_profile=build_profile(allowed_domains=sorted(hosts)))
-    await session.start()
     llm = ChatAnthropic(model=os.getenv("BROWSER_USE_MODEL", "claude-sonnet-5"))
 
     # browser-use reports no token usage by default, so the per-application cost
@@ -200,9 +246,10 @@ async def main() -> int:
 
     first = jobs[0].identity()
     print(f"Filling as : {first['full_name']} <{first['email']}>")
-    print(f"Bundles    : {len(jobs)} (each self-contained)\n")
+    print(f"Bundles    : {len(jobs)} (each gets its own browser window)\n")
 
     summary = []
+    sessions = []
     for index, job in enumerate(jobs, start=1):
         label, url, cv = job.label, job.url, job.cv_pdf
         print("=" * 72)
@@ -216,15 +263,20 @@ async def main() -> int:
         print(f"          liveness: {verdict} ({detail})")
         if verdict == "expired":
             print("  SKIPPED — the posting is gone; no browser run, no tokens spent.")
-            summary.append((label, None, ["posting expired — never opened"]))
+            summary.append((label, None, ["posting expired — never opened"], []))
             continue
 
-        # A fresh tab per job. Must come before the Agent is constructed, so the
-        # agent starts on a blank tab of its own rather than the last job's form.
+        # This job's own browser. keep_alive=True (see guards.build_profile)
+        # keeps the window open after the agent finishes, so the filled form is
+        # still there when you get to it.
         try:
-            await session.new_page()
-        except Exception as exc:  # noqa: BLE001 - a tab failure must not kill the batch
-            print(f"  !! could not open a new tab: {exc}")
+            session = BrowserSession(browser_profile=build_profile(allowed_domains=allowed_for(url)))
+            await session.start()
+            sessions.append(session)
+        except Exception as exc:  # noqa: BLE001 - one bad browser must not kill the batch
+            print(f"  !! could not start a browser: {exc}")
+            summary.append((label, None, [f"browser failed to start: {exc}"], []))
+            continue
 
         tools, state = build_tools()
         agent = Agent(
@@ -259,8 +311,9 @@ async def main() -> int:
         except Exception as exc:  # noqa: BLE001 - one bad job must not kill the batch
             print(f"  !! agent error: {exc}")
 
-        reasons = pause_reasons(result, state.blocked_clicks)
-        summary.append((label, result, reasons))
+        blockers = blocking_reasons(result, state.blocked_clicks)
+        notes = review_notes(result)
+        summary.append((label, result, blockers, notes))
 
         if result:
             print(f"\n  filled  : {len(result.filled)} field(s)")
@@ -273,33 +326,44 @@ async def main() -> int:
             print(f"  cv      : {'attached' if result.cv_attached else 'NOT attached'}")
             print(f"  captcha : {'yes' if result.captcha_present else 'no'}")
 
-        if reasons:
-            print("\n  PAUSED — a human is needed here:")
-            for r in reasons:
+        for n in notes:
+            print(f"\n  for you later: {n}")
+
+        if blockers:
+            print("\n  STOPPING — something is wrong here:")
+            for r in blockers:
                 print(f"    - {r}")
-            print("\n  The tab is open. Finish it, submit if you want to, then continue.")
+            print("\n  The window is open. Fix or investigate before running the rest.")
             if not sys.stdin.isatty():
-                # No terminal (observation run): a blocking prompt would EOF and
-                # kill the batch at the first pause, hiding every job after it.
-                # Report the pause and carry on; the tab stays open either way.
-                print("  [non-interactive: continuing without waiting]")
+                # A blocking prompt with no terminal would EOF and kill the run
+                # at the first stop, hiding every job after it.
+                print("  [non-interactive: continuing anyway]")
+            elif not pause_on_block:
+                print("  [--no-pause: continuing anyway]")
             else:
                 try:
-                    input("  Press Enter for the next job (Ctrl-C to stop)... ")
+                    input("  Press Enter to continue anyway (Ctrl-C to stop)... ")
                 except (EOFError, KeyboardInterrupt):
                     print("\n  stopping.")
                     break
         else:
-            print("\n  clean — advancing without a pause (tab left open for review)")
+            print("\n  filled cleanly — moving to the next job")
 
     print("\n" + "=" * 72)
     print("BATCH SUMMARY — nothing was submitted")
     print("=" * 72)
-    for label, result, reasons in summary:
-        state_text = "needs you" if reasons else "ready to submit"
+    # Three states, not two. A tab that only needs her words is a normal finish;
+    # lumping it in with a broken one hides which tabs actually need attention.
+    for label, result, blockers, notes in summary:
+        if blockers:
+            state_text = "PROBLEM"
+        elif notes:
+            state_text = "your words"
+        else:
+            state_text = "ready to submit"
         filled = len(result.filled) if result else 0
         print(f"  {state_text:16} {filled:2} filled  {label}")
-        for r in reasons:
+        for r in blockers + notes:
             print(f"                   - {r}")
     if cost is not None:
         # print(), not log_usage_summary(): that writes at INFO level, so any
@@ -313,7 +377,7 @@ async def main() -> int:
         except Exception as exc:  # noqa: BLE001
             print(f"(could not summarise token usage: {exc})")
 
-    print("\nAll tabs are open in the browser. Review and submit by hand.")
+    print(f"\n{len(sessions)} browser window(s) open, one per job. Review and submit by hand.")
     if sys.stdin.isatty():
         try:
             input("Press Enter to close the browser... ")
