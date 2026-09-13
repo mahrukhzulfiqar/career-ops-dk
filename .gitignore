@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# apply-runner
+.env
+screenshots/
+handoff/
+runs/
+
+# Personal job-search state stays local. Never commit it.
+userdata/
+handoff/
