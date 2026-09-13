@@ -42,6 +42,7 @@ set -euo pipefail
 CANONICAL="https://github.com/career-ops-hq/career-ops.git"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OVERLAY="$HERE/overlay"
+LOCAL_RULES="$HERE/local-rules.md"
 USERDATA="$HERE/userdata"
 REPO="$(cd "$HERE/.." && pwd)/career-ops"
 MODE=install
@@ -67,6 +68,48 @@ done
 mapfile -t FILES < <(cd "$OVERLAY" && find . -type f ! -name '*:Zone.Identifier' \
                      -printf '%P\n' | sort)
 [[ ${#FILES[@]} -gt 0 ]] || { echo "overlay/ is empty" >&2; exit 1; }
+
+# modes/_custom.md is where AGENTS.md says custom workflows and automations
+# belong: user layer, so update-system.mjs never touches it, and _shared.md
+# loads it on EVERY mode. Without this, a session in the career-ops checkout
+# knows stock career-ops and nothing about apply-queue.mjs, apply-runner or
+# run-chain.sh — it would point the user at the stock apply mode and might
+# hand-edit automation/ files that the next ./setup.sh silently reverts.
+#
+# Written as a marked block so the user's own house rules in the same file are
+# left alone. Same convention sync-reapply-windows.mjs uses on profile.yml.
+install_local_rules() {
+  local repo="$1"
+  local target="$repo/modes/_custom.md"
+  local begin="<!-- >>> career-ops-dk: installed additions. Managed by setup.sh, do not hand-edit. -->"
+  local end="<!-- <<< end career-ops-dk -->"
+
+  [[ -f "$LOCAL_RULES" ]] || { echo "warn      no local-rules.md; skipping _custom.md block" >&2; return 0; }
+
+  if [[ ! -f "$target" ]]; then
+    if [[ -f "$repo/modes/_custom.template.md" ]]; then
+      cp "$repo/modes/_custom.template.md" "$target"
+    else
+      printf '# Custom Instructions -- career-ops\n\n' > "$target"
+    fi
+  fi
+
+  python3 - "$target" "$LOCAL_RULES" "$begin" "$end" <<'PYEOF'
+import sys
+target, source, begin, end = sys.argv[1:5]
+body = open(source, encoding="utf-8").read().strip()
+block = f"{begin}\n\n{body}\n\n{end}"
+text = open(target, encoding="utf-8").read()
+if begin in text and end in text:
+    head, rest = text.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    text = head + block + tail
+else:
+    text = text.rstrip() + "\n\n" + block + "\n"
+open(target, "w", encoding="utf-8").write(text)
+PYEOF
+  echo "installed modes/_custom.md block (tells agents about these additions)"
+}
 
 if [[ "$MODE" == clone ]]; then
   [[ -e "$REPO" ]] && { echo "refusing to clone over an existing path: $REPO" >&2; exit 1; }
@@ -162,6 +205,7 @@ case "$MODE" in
       printf 'automation/\n' >> "$LP"
       echo "declared  automation/ in config/local-paths.txt"
     fi
+    install_local_rules "$REPO"
     echo
     echo "installed into $REPO"
     [[ -e "$REPO/cv.md" ]] || echo "note: no cv.md there yet — run ./setup.sh --seed-userdata"

@@ -13,6 +13,13 @@ knows the whole system — the modes, the scoring, and which file each kind of
 change belongs in. You do not need to learn the file layout; you do need to be
 in that directory.
 
+It also knows about the additions in this repo — the Jobindex scanner,
+`run-chain.sh`, and how applying actually works here — because `bootstrap.sh`
+writes them into `modes/_custom.md`, which career-ops loads on every mode. So
+*"apply to this one"* gets the bundle-and-runner workflow, not a stock answer.
+That block is managed by `setup.sh`; your own rules can live in the same file
+underneath it and are never touched.
+
 ## First session
 
 > set me up
