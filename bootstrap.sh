@@ -216,6 +216,8 @@ cat <<NEXT
 
 $(printf '\033[1m%s\033[0m' "Installed. Three things left, in this order:")
 
+  Full guide: $HERE/QUICKSTART.md
+
   1. Tell career-ops who you are.
      Open your agent CLI in the career-ops checkout and let it onboard you:
 
