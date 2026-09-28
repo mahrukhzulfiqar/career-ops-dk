@@ -99,8 +99,10 @@ eq(resolveAttachMode({ cv: { attach: 'tailored' } }, null).mode, 'tailored',
    'attach: tailored is explicit and valid');
 eq(resolveAttachMode({ cv: {} }, null).mode, 'tailored', 'an empty cv block still defaults');
 eq(resolveAttachMode({ cv: { attach: '  ' } }, null).mode, 'tailored', 'a blank value defaults');
-// a real file in the repo, used only to prove a configured path resolves
-eq(resolveAttachMode({ cv: { attach: 'cv.md' } }, null).mode, 'original',
+// A file every career-ops checkout ships, used only to prove a configured path
+// resolves. Not cv.md: that is user data, absent on a fresh checkout, and a
+// missing path hard-exits the whole test run via fail().
+eq(resolveAttachMode({ cv: { attach: 'package.json' } }, null).mode, 'original',
    'a path that exists selects the fixed attachment');
-eq(resolveAttachMode({ cv: { attach: 'tailored' } }, 'cv.md').mode, 'original',
+eq(resolveAttachMode({ cv: { attach: 'tailored' } }, 'package.json').mode, 'original',
    '--cv overrides the profile setting');
