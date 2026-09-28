@@ -65,8 +65,11 @@ done
 # Files the overlay owns, discovered from overlay/ rather than hardcoded — a
 # list maintained by hand is one that eventually forgets a new file, and a
 # forgotten file is one that never reaches the live machine.
-mapfile -t FILES < <(cd "$OVERLAY" && find . -type f ! -name '*:Zone.Identifier' \
-                     -printf '%P\n' | sort)
+# Portable to macOS: no mapfile (bash 3.2) and no find -printf (BSD find).
+FILES=()
+while IFS= read -r f; do FILES+=("$f"); done < <(
+  cd "$OVERLAY" && find . -type f ! -name '*:Zone.Identifier' ! -name '.DS_Store' \
+    | sed 's|^\./||' | sort)
 [[ ${#FILES[@]} -gt 0 ]] || { echo "overlay/ is empty" >&2; exit 1; }
 
 # modes/_custom.md is where AGENTS.md says custom workflows and automations

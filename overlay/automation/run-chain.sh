@@ -40,8 +40,7 @@ set -uo pipefail   # NOT -e: one bad stage must not kill the run
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR" || exit 1
 
-export PATH="$HOME/.nvm/versions/node/v24.17.0/bin:$HOME/.local/bin:$PATH"
-NODE="$(command -v node || true)"
+source "$PROJECT_DIR/automation/_env.sh"
 [[ -z "$NODE" ]] && { echo "FATAL: node not on PATH" >&2; exit 1; }
 
 LIMIT=5

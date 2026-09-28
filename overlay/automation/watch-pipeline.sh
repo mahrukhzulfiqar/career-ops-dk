@@ -9,7 +9,7 @@
 # Ctrl-C to stop. Read-only: it never writes to the tracker.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-NODE="${NODE:-$HOME/.nvm/versions/node/v24.17.0/bin/node}"
+source automation/_env.sh
 INTERVAL="${1:-5}"
 
 while true; do

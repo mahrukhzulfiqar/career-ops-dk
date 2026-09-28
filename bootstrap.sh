@@ -122,7 +122,17 @@ if [[ $CHECK_ONLY -eq 0 ]]; then
   fi
 fi
 
-if [[ -d "$HOME/.cache/ms-playwright" ]] && compgen -G "$HOME/.cache/ms-playwright/chromium-*" >/dev/null; then
+# Playwright's browser cache is ~/.cache on Linux, ~/Library/Caches on macOS,
+# unless PLAYWRIGHT_BROWSERS_PATH overrides both.
+has_chromium() {
+  local d
+  for d in "${PLAYWRIGHT_BROWSERS_PATH:-}" "$HOME/.cache/ms-playwright" "$HOME/Library/Caches/ms-playwright"; do
+    [[ -n "$d" ]] && compgen -G "$d/chromium-*" >/dev/null && return 0
+  done
+  return 1
+}
+
+if has_chromium; then
   ok "Playwright Chromium already installed"
 elif [[ $CHECK_ONLY -eq 1 ]]; then
   bad "Playwright Chromium missing — needed for PDFs and liveness checks"
