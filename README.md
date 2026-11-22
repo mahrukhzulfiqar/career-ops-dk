@@ -1,5 +1,69 @@
 # career-ops-dk
 
+**An AI job-search pipeline for Denmark that finds the roles other tools miss and fills application forms, then stops so a human clicks Submit.**
+
+## Product case study at a glance
+
+| | |
+|---|---|
+| **Problem** | Most Danish product roles are only on Jobindex.dk, which the open-source career-ops system does not scan. And filling the same application forms again and again is slow, while auto-apply tools submit for you and guess answers they do not know |
+| **User** | A job seeker in Denmark targeting product roles, running the search with an AI agent |
+| **Key decision** | [Nothing submits an application](product/decision-log.md#d4-nothing-in-the-system-submits-an-application). The agent fills the form; a human reviews and clicks Submit. Enforced in code, not just in a prompt |
+| **Evidence** | One scan: Jobindex found **13** Danish product roles against **2** from ten company boards. Form filling measured at about **$0.26** per application |
+| **Trust by design** | Facts are copied from the profile and never written by a model; unknown questions stop the run; every file is checksummed and the cover letter must name the right company |
+| **Next** | Block submission at network level, record diversity answers once, and track interviews per application |
+
+📄 **Product docs:** [One-page brief](product/brief.md) · [Success metrics](product/metrics.md) · [Roadmap](product/roadmap.md) · [Decision log](product/decision-log.md)
+
+The product story comes first below. Setup and architecture are in [For engineers](#for-engineers).
+
+---
+
+# Product
+
+## 1. Problem and user
+
+Two gaps made an AI-run job search in Denmark worse than it needed to be.
+
+**Discovery missed most Danish roles.** career-ops scans company job boards. In one scan, the ten configured boards returned 2 Danish product roles; Jobindex.dk returned 13, including the enterprise and public-sector tier (banks, regions, KOMBIT) that no company board reached.
+
+**Applying was slow, and the fast options were unsafe.** Auto-apply tools submit on the candidate's behalf and guess what they do not know, including work authorisation and salary. An application cannot be recalled, and a cover letter sent to the wrong employer reads as careless.
+
+**Target user:** a job seeker in Denmark, targeting product roles, who runs their search with an AI agent and wants fewer hours on forms without losing control of what is sent.
+
+**Job to be done:** *"When a role fits me, prepare the application and fill the form with my real details, so I only review and click Submit."*
+
+**Deliberately out of scope:** submitting, guessing answers, storing personal data in the repo, forking career-ops. ([brief](product/brief.md))
+
+## 2. Key product decisions
+
+| Decision | Why | Trade-off |
+|---|---|---|
+| **A human always clicks Submit** ([D4](product/decision-log.md#d4-nothing-in-the-system-submits-an-application)) | The value is removing typing, not judgement. A missing action cannot be used; a rule in a prompt can be ignored | The candidate reviews every form |
+| **Facts are copied, never generated; unknowns stop the run** ([D7](product/decision-log.md#d7-facts-are-copied-never-written-by-a-model-unknowns-stop-the-run)) | If a model writes the facts, fabrication has only moved one step earlier | More runs stop early until the profile is complete |
+| **The wrong file can never reach an employer** ([D6](product/decision-log.md#d6-guard-against-a-file-reaching-the-wrong-employer)) | Checksums prove a file is intact; the company-name check proves it is the right one | A cover letter that never names the company needs a manual fix |
+| **Cheap triage before paid evaluation** ([D9](product/decision-log.md#d9-a-cheap-triage-before-paid-evaluation)) | Most scan results are clearly off-target and cost almost nothing to rule out | A good role with an unusual title can be skipped |
+| **The score bar is typed each run** ([D8](product/decision-log.md#d8-the-score-bar-is-typed-each-run-not-configured-once)) | Widening the net should be a conscious choice, not a forgotten setting | One more argument to type |
+| **An overlay, not a fork** ([D1](product/decision-log.md#d1-an-overlay-on-career-ops-not-a-fork)) | Upstream updates keep working with no merge work | Two repos to keep in step |
+
+## 3. What changed along the way
+
+- **The first design was wrong and was deleted.** A per-form field-map contract invented a feature career-ops does not have. It was replaced the same day by one self-contained folder per role ([D5](product/decision-log.md#d5-a-self-contained-folder-per-role-as-the-interface)).
+- **Symlinks failed silently.** The scan quietly lost its Jobindex provider and the bridge reported 0 pending roles. Reverted to copies within the day ([D2](product/decision-log.md#d2-install-copies-not-symlinks)).
+- **Measured before building.** A read-only smoke test against a real posting set the cost per form before the queue and runner were built ([D13](product/decision-log.md#d13-measure-before-building)).
+
+## 4. How success is measured
+
+North star: **interviews per application submitted**, not applications per week. Guardrails that must stay at zero: submissions without a human click, guessed answers, files sent to the wrong employer, duplicate applications. ([metrics](product/metrics.md))
+
+## 5. What is next
+
+Block the submit request at network level, record diversity answers once in the profile, narrow what evaluation workers can touch, and log interview outcomes. ([roadmap](product/roadmap.md))
+
+---
+
+# For engineers
+
 The Denmark-specific half of a career-ops job search, plus the browser runner
 that fills application forms. Two halves that career-ops upstream does not ship.
 
@@ -13,7 +77,7 @@ career-ops-dk/
   setup.sh        installs the overlay into a checkout
 ```
 
-## The three moving parts
+### The three moving parts
 
 | Part | Where it comes from | How it updates |
 |------|--------------------|----------------|
@@ -26,7 +90,7 @@ updates keep working: `update-system.mjs` fetches a **hardcoded** canonical URL,
 not your `origin`, so this checkout's remote can point anywhere. The only hard
 requirement is that the checkout owns its own `.git` — a ZIP copy is refused.
 
-## What the overlay contains
+### What the overlay contains
 
 - **`providers/jobindex.mjs`** — Jobindex.dk, Denmark's largest job board, via
   the public RSS feed. This is the single highest-value file here: one scan
@@ -38,7 +102,7 @@ requirement is that the checkout owns its own `.git` — a ZIP copy is refused.
   `pipeline-to-batch.mjs`, which closes a real upstream gap: nothing shipped
   converts `data/pipeline.md` into `batch/batch-input.tsv`.
 
-## Setup on a new machine
+### Setup on a new machine
 
 ```bash
 git clone <this repo> career-ops-dk
@@ -66,7 +130,7 @@ Check an existing install at any time:
 ./bootstrap.sh --check      # verifies everything, changes nothing
 ```
 
-## Working on the overlay
+### Working on the overlay
 
 `overlay/` is the source of truth. Edit there, then `./setup.sh` to install.
 
@@ -75,7 +139,7 @@ Check an existing install at any time:
 ./setup.sh --pull    # rescue edits made directly in the checkout
 ```
 
-### Why copies and not symlinks
+#### Why copies and not symlinks
 
 Tried on 2026-09-13, reverted the same day. Both halves break under a symlink,
 and both break *silently*:
@@ -91,7 +155,7 @@ and both break *silently*:
 Copies keep every file's realpath inside the checkout. `--check` is what
 replaces the guarantee symlinks would have given.
 
-## Your data
+### Your data
 
 **This repo contains no personal data, and nothing you generate should be added
 to it.** Clone it, install the overlay, then run career-ops' own onboarding: it
@@ -109,7 +173,7 @@ back up anything else you would not want to retype.
 `apply-runner/.env` is gitignored too. The Anthropic key never travels; each
 machine needs its own.
 
-### Never commit these
+#### Never commit these
 
 - `apply-runner/.env` — the Anthropic API key.
 - `cv.md`, `config/profile.yml`, `data/`, `reports/`, `output/` — your own
