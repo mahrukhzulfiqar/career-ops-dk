@@ -228,3 +228,7 @@ machine needs its own.
 - `data/contacts.tsv`, `data/Connections.csv` — recruiters and LinkedIn
   connections. That is *other people's* personal data, and it does not belong in
   a repo even a private one.
+
+## License
+
+MIT, see [LICENSE](LICENSE). career-ops itself is a separate project under its own license; this repo does not include or modify it.
