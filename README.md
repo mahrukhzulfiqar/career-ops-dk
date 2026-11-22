@@ -10,12 +10,13 @@
 | **User** | A job seeker in Denmark targeting product roles, running the search with an AI agent |
 | **Key decision** | [Nothing submits an application](product/decision-log.md#d4-nothing-in-the-system-submits-an-application). The agent fills the form; a human reviews and clicks Submit. Enforced in code, not just in a prompt |
 | **Evidence** | One scan: Jobindex found **13** Danish product roles against **2** from ten company boards. Form filling measured at about **$0.26** per application |
+| **Agentic AI** | Four AI agents, each given only the freedom its mistakes can afford, from a read-only triage prompt to a browser agent fenced off from submitting. [How it works](#3-agentic-ai-design-how-much-freedom-each-agent-gets) |
 | **Trust by design** | Facts are copied from the profile and never written by a model; unknown questions stop the run; every file is checksummed and the cover letter must name the right company |
 | **Next** | Block submission at network level, record diversity answers once, and track interviews per application |
 
 📄 **Product docs:** [One-page brief](product/brief.md) · [Success metrics](product/metrics.md) · [Roadmap](product/roadmap.md) · [Decision log](product/decision-log.md)
 
-The product story comes first below. Setup and architecture are in [For engineers](#for-engineers).
+The product story comes first below. The [architecture diagram](#4-architecture) is in the Product section; setup is in [For engineers](#for-engineers).
 
 ---
 
@@ -46,17 +47,63 @@ Two gaps made an AI-run job search in Denmark worse than it needed to be.
 | **The score bar is typed each run** ([D8](product/decision-log.md#d8-the-score-bar-is-typed-each-run-not-configured-once)) | Widening the net should be a conscious choice, not a forgotten setting | One more argument to type |
 | **An overlay, not a fork** ([D1](product/decision-log.md#d1-an-overlay-on-career-ops-not-a-fork)) | Upstream updates keep working with no merge work | Two repos to keep in step |
 
-## 3. What changed along the way
+## 3. Agentic AI design: how much freedom each agent gets
+
+The pipeline uses AI agents at four points, and each one gets only as much freedom as its mistakes can afford. Anything that can be done by plain code (scanning, liveness checks, exporting bundles, checksums, the facts file) is not given to a model at all.
+
+| Stage | Who acts | Autonomy | Guardrails |
+|---|---|---|---|
+| **Conversation** | The candidate's agent CLI (e.g. Claude Code), inside the career-ops checkout | Works with the candidate, turn by turn | Reads [AGENT-NOTES.md](AGENT-NOTES.md) only when the question needs it, through a short pointer in `modes/_custom.md`, so the full rules are not carried in context all day |
+| **Triage** | One cheap prompt | Read three named files, write one file, nothing else | May not open URLs, fetch ads or start other agents. Posting text is treated as untrusted data. Unknown facts go to "maybe" with the reason, never a guess |
+| **Evaluation** | Parallel headless workers (upstream career-ops) | High: run unattended | The one deliberate exception ([D14](product/decision-log.md#d14-accept-the-upstream-batch-runners-permission-bypass-deliberately)): the upstream runner skips permission checks. Accepted and documented; narrowing it is on the roadmap |
+| **Form filling** | A browser agent (browser-use, Claude Sonnet) | Acts on a live website, inside a fenced action space | Running JavaScript and file actions removed (except uploading the CV); the click action replaced by one that refuses submit buttons in English and Danish; navigation limited to the posting's own hosts; answers only from the bundle; stops on unknown questions and captchas; picks options by visible text, never position |
+| **Submit** | The candidate | Full | The only step that cannot be undone stays with a human |
+
+Three principles run through it:
+
+- **Constrain the action space, not just the prompt.** A rule in a prompt can be ignored; an action the agent does not have cannot be used. That is why submit is blocked in code ([D4](product/decision-log.md#d4-nothing-in-the-system-submits-an-application)).
+- **Stopping is a valid outcome.** An agent that stops and records the question word for word is more useful than one that guesses on a legal declaration ([D7](product/decision-log.md#d7-facts-are-copied-never-written-by-a-model-unknowns-stop-the-run)).
+- **Treat the internet as untrusted input.** Job postings are written by third parties and can contain text that looks like instructions. Every prompt says so, and nothing in a posting can widen what an agent may read or write.
+
+## 4. Architecture
+
+```mermaid
+flowchart LR
+  subgraph Discover["Discover (no AI)"]
+    J[Jobindex.dk RSS] --> S[scan]
+    B[Company job boards] --> S
+    S --> L[liveness check]
+  end
+  subgraph Decide["Decide (AI)"]
+    L --> T[triage prompt<br/>title + location only]
+    T --> E[evaluation workers<br/>score, tailored CV, report]
+    E --> TR[(tracker)]
+  end
+  subgraph Prepare["Prepare (no AI)"]
+    TR --> Q[apply-queue<br/>score >= bar]
+    Q --> H[/one folder per role<br/>CV, cover letter, facts, checksums/]
+  end
+  subgraph Fill["Fill (AI, fenced)"]
+    H --> D[dry run<br/>checksums, company name, liveness]
+    D --> R[browser agent fills form<br/>submit blocked]
+  end
+  R --> U((Candidate reviews<br/>and clicks Submit))
+  U --> X[move to done/<br/>status: Applied]
+```
+
+career-ops itself is cloned unchanged; this repo installs the Danish provider and the automation into it, and the browser runner reads only the exported folders.
+
+## 5. What changed along the way
 
 - **The first design was wrong and was deleted.** A per-form field-map contract invented a feature career-ops does not have. It was replaced the same day by one self-contained folder per role ([D5](product/decision-log.md#d5-a-self-contained-folder-per-role-as-the-interface)).
 - **Symlinks failed silently.** The scan quietly lost its Jobindex provider and the bridge reported 0 pending roles. Reverted to copies within the day ([D2](product/decision-log.md#d2-install-copies-not-symlinks)).
 - **Measured before building.** A read-only smoke test against a real posting set the cost per form before the queue and runner were built ([D13](product/decision-log.md#d13-measure-before-building)).
 
-## 4. How success is measured
+## 6. How success is measured
 
 North star: **interviews per application submitted**, not applications per week. Guardrails that must stay at zero: submissions without a human click, guessed answers, files sent to the wrong employer, duplicate applications. ([metrics](product/metrics.md))
 
-## 5. What is next
+## 7. What is next
 
 Block the submit request at network level, record diversity answers once in the profile, narrow what evaluation workers can touch, and log interview outcomes. ([roadmap](product/roadmap.md))
 
